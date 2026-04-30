@@ -1,0 +1,31 @@
+# Project data
+data/
+
+# Assignment source documents
+A2-Rubric-2026-S1.pdf
+A2-Spec-2026-S1.pdf
+A2_ReportTemplate-2026-S1.docx
+
+# macOS
+.DS_Store
+
+# Python caches and build artifacts
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+build/
+dist/
+*.egg-info/
+
+# Virtual environments and local config
+.venv/
+venv/
+env/
+.env
+.env.*
+
+# Jupyter
+.ipynb_checkpoints/
