@@ -118,45 +118,143 @@ Current assumptions:
 - `stories.csv` is probably not used for the main modelling task.
 - `squirrel.csv` and `hectare.csv` are combined using `Hectare`, `Shift`, and `Date`.
 
-Current questions:
+### Decisions
 
-- Should `Primary Fur Color` and `Highlight Fur Color` be predictors?
-- Intuition says fur colour may be irrelevant to approach/avoid behaviour, but should it be tested or excluded on conceptual grounds?
-- Can `X` and `Y` be useful, and if so should they be used directly, transformed into spatial zones, or only visualised?
-- `Location` and `Above Ground Sighter Measurement` seem useful. How should they be cleaned and encoded?
-- Should `Date` be a predictor? Options: raw date, day index since start, day-of-week, exclude. (Carried over from Phase 0.)
-- How should `Other Animal Sightings` be used as a predictor? It is a free-text comma-separated list (e.g., "Humans, Pigeons, Dogs") and needs parsing into keyword flags (e.g., `animals_humans_present`, `animals_dogs_present`) before encoding. (Carried over from Phase 0.)
-- What is the final list of raw features used from each dataset?
-- What engineered features should be created?
+- **Q1 (closed): Include both fur-colour fields, but simplify `Highlight Fur Color`.**
+  - `Primary Fur Color`: keep raw → one-hot encode (3 levels, 55 nulls).
+  - `Highlight Fur Color`: split the multi-valued string into per-colour boolean flags `highlight_white`, `highlight_cinnamon`, `highlight_black`, plus `highlight_missing` for the 1,086 nulls.
+  - Reason: the research question explicitly asks which features are most influential, so excluding fur on conceptual grounds prevents the model from answering. Per-colour flags handle the 10 multi-valued combinations cleanly.
+  - **Note for the data-preprocessing teammate**: this parsing happens during feature construction.
 
-Expected output of this phase:
+- **Q2 (closed): `X` and `Y` are kept as standardised continuous predictors; no spatial zoning.**
+  - Fit `StandardScaler` on training data only and apply the same transform to the test set and each CV fold's holdout. Wrap inside the same scikit-learn `Pipeline` as the model so `cross_val_score` / `GridSearchCV` handle fit/transform correctly. This follows the leakage rule already in [AI_AGENT_GUIDE.md:119](AI_AGENT_GUIDE.md#L119).
+  - Reason: trees use raw coordinates natively; LR gets a weak linear approximation, which is acceptable. Coarse zones inflate dimensionality on the 804-row pool without clear benefit. Map visualisation is for the report, not the model.
 
-- Final predictor list grouped by behaviour, time, spatial, individual characteristics, and hectare context.
-- Explicit list of excluded fields and why.
-- Feature-engineering plan.
+- **Q3 (closed): Drop raw `Location` and raw `Above Ground Sighter Measurement`; keep three engineered features.**
+  - `is_above_ground` = `True` if `Location == "Above Ground"`, else `False`.
+  - `above_ground_numeric` = parsed numeric height from `Above Ground Sighter Measurement` when `Location == "Above Ground"`; `0` when `Location == "Ground Plane"`; median-impute (train-only) when missing.
+  - `location_missing` = `True` if `Location` is null, else `False` (covers the 64 null `Location` rows / 114 null height rows).
+  - **Note for the data-preprocessing teammate**: this parsing matches the rule already noted in [AI_AGENT_GUIDE.md:98](AI_AGENT_GUIDE.md#L98).
 
-Decision status: open.
+- **Q4 (closed): Date is reduced to `is_weekend` only; drop raw date and `day_of_week`.**
+  - `is_weekend` = `True` if the parsed date falls on Saturday/Sunday, else `False`.
+  - Reason: the dataset shows a heavy weekend bias in squirrel counts (10/13 Sat = 434, 10/20 Sat = 67, midweek dates 200–300). Plausible mechanism: more park visitors on weekends → shifted approach/avoid base rates. **Caveat: the visitor-density mechanism is inferred, not stated in the assignment spec or rubric** — flag as an assumption in the report. Raw date and `day_of_week` are dropped because 11 unevenly distributed dates over 14 days are too sparse to support more granular calendar features.
+
+- **Q5 (closed): Drop `animals_humans_present`; keep the other animal-keyword flags.**
+  - Final flags from `Other Animal Sightings`: `animals_dogs_present`, `animals_cats_present`, `animals_hawks_present`, `animals_pigeons_present`, plus `animals_data_missing` for the 32 null rows.
+  - Each flag = `True` if the keyword (case-insensitive) appears in the comma-separated string.
+  - Reason: every observation was made by a human sighter, so `animals_humans_present` is near-constant in the predictor and risks being read as causal when it just reflects the data-collection setup. (Supersedes the suggestion in [AI_AGENT_GUIDE.md:100](AI_AGENT_GUIDE.md#L100).)
+
+- **Q6 (closed): Final engineered-feature list and weather-data inclusion.**
+  - **Removed** from the engineered set: `activity_count`, `is_active`, `vocalisation_count`, `tail_signal_count`. Reason: they are perfect linear combinations of the underlying behaviour and signal flags (Q7 chose flags-only); keeping both forms creates collinearity for no information gain.
+  - **Kept** engineered features (with definitions):
+    - `is_above_ground` — see Q3.
+    - `above_ground_numeric` — see Q3.
+    - `location_missing` — see Q3.
+    - `is_weekend` — see Q4.
+    - `highlight_white` / `highlight_cinnamon` / `highlight_black` — `True` if the colour name appears in `Highlight Fur Color`, else `False`.
+    - `highlight_missing` — `True` if `Highlight Fur Color` is null, else `False`.
+    - `animals_dogs_present` / `animals_cats_present` / `animals_hawks_present` / `animals_pigeons_present` — `True` if the keyword (case-insensitive) appears in `Other Animal Sightings`, else `False`.
+    - `animals_data_missing` — `True` if `Other Animal Sightings` is null, else `False`.
+    - `temperature_f` — see weather note below.
+    - `sky_condition` — see weather note below.
+    - `squirrel_density_proxy` = `Number of Squirrels` / `Total Time of Sighting` (squirrels per minute); median-impute (train-only) where undefined.
+  - **`Sighter Observed Weather Data` is included as a predictor.** **Note for the data-preprocessing teammate**: parse the free-text field (498 unique strings, e.g., `"57º F, overcast"`, 19 nulls / 700 rows) into:
+    - `temperature_f` — numeric (regex `\d+` on the temperature substring); median-impute (train-only) for nulls/parse failures.
+    - `sky_condition` — coarse keyword match (`clear`, `overcast`, `cloudy`, `rain`) → one-hot encode; missing → `"Unknown"`.
+  - `Specific Location` remains excluded (no parsing attempt).
+
+- **Q7 (closed): Keep individual behaviour and signal flags only — do not also keep their summed counts.**
+  - Behaviour flags retained: `Running`, `Chasing`, `Climbing`, `Eating`, `Foraging`.
+  - Signal flags retained: `Kuks`, `Quaas`, `Moans`, `Tail flags`, `Tail twitches`.
+  - Reason: a sum is a perfect linear combination of its component flags; keeping both forms introduces collinearity with no extra information. Flags-only is the cleaner default and gives interpretable per-behaviour importance.
+
+### Final predictor list
+
+From `squirrel.csv`:
+
+- Behaviour flags (5): `Running`, `Chasing`, `Climbing`, `Eating`, `Foraging`.
+- Signal flags (5): `Kuks`, `Quaas`, `Moans`, `Tail flags`, `Tail twitches`.
+- Time (2): `Shift` (OHE), `is_weekend`.
+- Spatial (5): `X`, `Y` (standardised), `is_above_ground`, `above_ground_numeric`, `location_missing`.
+- Individual (3 raw + 4 engineered): `Age` (OHE; treat `"?"` as missing), `Primary Fur Color` (OHE), `highlight_white`, `highlight_cinnamon`, `highlight_black`, `highlight_missing`.
+
+From `hectare.csv` (joined on `Hectare`, `Shift`, `Date`):
+
+- Hectare context (3 raw): `Litter` (OHE; encode missing as `"Unknown"` — 381 nulls), `Hectare Conditions` (OHE; fold `"Medium"` typo into `"Moderate"`), `Number of sighters`, `Number of Squirrels`, `Total Time of Sighting`.
+- Animal flags (5 engineered): `animals_dogs_present`, `animals_cats_present`, `animals_hawks_present`, `animals_pigeons_present`, `animals_data_missing`.
+- Weather (2 engineered): `temperature_f`, `sky_condition` (OHE).
+- Density (1 engineered): `squirrel_density_proxy`.
+
+### Excluded fields
+
+- **Target leakers**: `Approaches`, `Indifferent`, `Runs from`, `Other Interactions`.
+- **ID / duplicate / composite**: `Unique Squirrel ID`, `Lat/Long`, `Combination of Primary and Highlight Color`, `Hectare Squirrel Number`.
+- **High-null free text**: `Color notes` (2,841 nulls), `Other Activities` (2,586), `Specific Location` (2,547).
+- **Spatial leakage**: raw `Hectare` ID (Phase 0 decision — high cardinality + within-hectare leakage on a random split).
+- **Calendar redundancy**: raw `Date`, `day_of_week` (Q4 — only `is_weekend` retained).
+- **Replaced by engineered features**: raw `Location`, raw `Above Ground Sighter Measurement` (Q3), raw `Sighter Observed Weather Data` (Q6 — replaced by `temperature_f` + `sky_condition`), raw `Other Animal Sightings` (Q5 — replaced by per-keyword flags), raw `Highlight Fur Color` (Q1 — replaced by per-colour flags).
+- **Collinear sums**: `activity_count`, `is_active`, `vocalisation_count`, `tail_signal_count` (Q7 — flags-only chosen).
+- **Single-flag exclusion**: `animals_humans_present` (Q5 — collection-bias artefact).
+
+### Expected output of this phase
+
+- Final predictor list grouped by behaviour, time, spatial, individual characteristics, and hectare context. ✅
+- Explicit list of excluded fields and why. ✅
+- Feature-engineering plan. ✅
+
+Decision status: Q1–Q7 all closed. Phase 2 complete.
 
 ## Phase 3: Train/Test Split
 
 Goal: decide how to split data and prevent leakage.
 
-Current questions:
+### Decisions
 
-- Is this a temporal-series question? Current assumption: no, so random stratified splitting is acceptable.
-- Is there any risk of future-looking leakage from using `Date` or hectare-level summaries?
-- Since cross-validation is required for model selection, what is the exact split strategy?
-- Which preprocessing steps are fitted only on training data?
-- How should class imbalance be handled?
+- **Q1 (closed): Random split, not temporal.**
+  - Reason: 11-day span (6–20 Oct 2018) is too short for a forecasting framing; the research question is about behavioural/contextual drivers, not future prediction. Per-day counts are heavily skewed (10/13: 434 vs 10/20: 67), so a chronological cut would over/under-represent specific weekends in either side.
 
-Expected output of this phase:
+- **Q2 (closed): Session-grouped splitting to prevent within-session leakage.**
+  - Each (Hectare, Shift, Date) session contributes multiple squirrel rows that share identical hectare-context features (litter, weather, density proxy, other-animal flags, total sighting time). A row-level random split would put squirrels from the same session into both train and test, letting the model memorise session context.
+  - Mitigation: build `session_id = Hectare + "_" + Shift + "_" + Date` and pass it as the `groups` argument to `StratifiedGroupKFold`. `session_id` is **not** a predictor — splitter input only.
+  - **Owner: data preprocessing teammate** builds `session_id` (deterministic concat; no fitting required).
+  - `Date` itself is already excluded as a predictor (Phase 2 Q4 — only `is_weekend` retained).
 
-- Final train/test split rule.
-- Cross-validation strategy.
-- Leakage-prevention checklist.
-- Imbalance-handling decision, such as class weighting, resampling, threshold tuning, or metric choice.
+- **Q3 (closed): Single 80/20 hold-out + inner 5-fold CV (Option A).**
+  - Steps:
+    1. Outer split: one stratified-grouped 80/20 split over the 804-row binary pool, stratified on `y`, grouped by `session_id`, `random_state=42`.
+    2. On the 80% training portion: 5-fold `StratifiedGroupKFold` (same stratify + group rules) inside `GridSearchCV` to choose model hyperparameters. Inner-CV scoring uses a `predict_proba`-based metric (e.g. `average_precision` or `roc_auc`) so hyperparameter selection is threshold-independent.
+    3. Refit the best pipeline on the full 80% training set.
+    4. Threshold tuning (real models only — see Q5): use `cross_val_predict(method="predict_proba", cv=StratifiedGroupKFold(5))` on the training set to obtain out-of-fold probabilities, sweep thresholds (e.g. 0.05–0.95 in 0.01 steps), pick the one maximising macro-F1.
+    5. Apply the chosen threshold to the held-out 20% test set probabilities and compute metrics.
+    6. **CI:** bootstrap-resample the test set (~1,000 resamples with replacement; report 2.5th/97.5th percentiles for each metric) to give a CI on held-out performance.
+  - Expected sizes: ~643 train / ~161 test rows, with ~32 approach in the test set. Small-test-set caveat flagged as a report limitation; bootstrap CI makes it defensible.
+  - Why not nested CV: the assignment expects a clear single train/test split + CV; one held-out test set is easier to defend in the report and oral; outer-fold scores from 161-row folds would be just as noisy in practice.
 
-Decision status: open.
+- **Q4 (closed): Preprocessing fitted only on training data, inside an sklearn `Pipeline` / `ColumnTransformer`.**
+  - **Inside the pipeline (fit on training fold only):** `SimpleImputer(strategy="median")` on numeric, `SimpleImputer(strategy="constant", fill_value="Unknown")` on categoricals where missingness may be informative, `OneHotEncoder(handle_unknown="ignore")` on categoricals, `StandardScaler` on numerics for LR/KNN (not needed for tree models).
+  - **Outside the pipeline (deterministic, fine on full data):** boolean/date parsing, target relabelling (A+I → approach, I+R → avoid), conflict-row drop (A+R, A+I+R), free-text parsing into keyword flags, joining squirrel ↔ hectare, basic type fixes (`Age == "?"` → NaN, parsing `Above Ground Sighter Measurement`), folding `Hectare Conditions` `"Medium"` → `"Moderate"`, building `session_id`.
+  - **Task allocation:**
+    - Data preprocessing teammate: everything outside the pipeline (deterministic rewrites of raw data) plus `session_id` construction.
+    - Modelling teammate: the `Pipeline` / `ColumnTransformer`, including imputers, encoders, and `StandardScaler`. Rule of thumb: anything where "fit on train, transform test" matters lives in the modelling code.
+
+- **Q5 (closed): Class imbalance handled by `class_weight="balanced"` + threshold tuning. No resampling.**
+  - **`class_weight="balanced"`**: scikit-learn argument on `LogisticRegression`, `DecisionTreeClassifier`, `RandomForestClassifier`. Re-weights the loss so each class contributes equally regardless of size (with 158 approach / 658 avoid, every approach row counts ~4.16× as much during training). Complementary to stratification: stratification controls *how imbalance is distributed across folds*, `class_weight` controls *how the model treats the imbalance during training*. Both are required.
+  - **Threshold tuning** (real models only, not dummy): chosen on training-set out-of-fold probabilities (Q3 step 4), applied once on the test set. Not a `GridSearchCV` hyperparameter — separate post-fit step using `predict_proba` instead of `predict`.
+  - **Dummy baseline**: `DummyClassifier(strategy="most_frequent", random_state=42)` reported as a floor in the metrics table; optional second row with `strategy="stratified"` as a chance-level anchor. No hyperparameter tuning, no threshold tuning. Not counted as one of the two real supervised models — it is the reference point that proves the real models have learned something from the predictors.
+
+### Phase 1 Q4 (data sufficiency) revisit
+
+Confirmed defensible under Option A: ~643 train / ~161 test, ~32 approach in test. The combination of stratified-grouped split, `class_weight="balanced"`, low-complexity models, and bootstrap CIs on test metrics meets the Phase 1 mitigation plan. Small-test-set caveat to be flagged as a limitation in the report.
+
+### Expected output of this phase
+
+- Final train/test split rule. ✅
+- Cross-validation strategy. ✅
+- Leakage-prevention checklist (session-grouped split, pipeline-only preprocessing, raw `Date` excluded). ✅
+- Imbalance-handling decision (`class_weight="balanced"` + threshold tuning, no resampling). ✅
+
+Decision status: Q1–Q5 all closed. Phase 3 complete.
 
 ## Phase 4: Prediction Model Selection
 
@@ -205,7 +303,7 @@ Use this section to record final decisions after each phase is discussed.
 
 - Phase 0: complete. Join key = (Hectare, Shift, Date) via left join from squirrel → hectare. Raw `Hectare` ID excluded as predictor; use X, Y and hectare-level context. `Hectare Squirrel Number` excluded; use a session-level **density predictor** = `Number of Squirrels / Total Time of Sighting`. Known data caveats (missingness, mixed-type fields, multi-valued highlight colour, shift imbalance, observer effects) catalogued above. Date-as-predictor and `Other Animal Sightings` parsing deferred to Phase 2.
 - Phase 1: Q1, Q2, Q3 closed. Target = binary `approach` (158) vs `avoid` (658), 804 rows after relabelling `A+I → approach` and `I+R → avoid`. Three-class is **out of scope** (no sensitivity run). Excluded: exact indifferent (1,407), no-interaction (780), genuine conflicts `A+R` + `A+I+R` (20). Q4 (data sufficiency) open — mitigated by stratified 5-fold CV, `class_weight="balanced"`, and low-complexity models; revisit after Phase 3/5. Multi-flag relabel/drop owned by the data preprocessing teammate.
-- Phase 2: pending.
-- Phase 3: pending.
+- Phase 2: complete. Final predictor set spans behaviour flags (5), signal flags (5), time (Shift + is_weekend), spatial (X, Y standardised, is_above_ground, above_ground_numeric, location_missing), individual characteristics (Age, Primary Fur Color OHE, four highlight_* flags), and hectare context (Litter, Hectare Conditions, four animal-keyword flags + animals_data_missing, Number of sighters, Number of Squirrels, Total Time of Sighting, temperature_f, sky_condition, squirrel_density_proxy). Excluded: target leakers, ID/composite fields, raw Hectare, raw Date and day_of_week, raw Location/Above Ground/Weather/Animal Sightings/Highlight (replaced by engineered features), all summed activity/signal counts (flags-only), `animals_humans_present` (collection-bias artefact), and Specific Location. X/Y standardisation must be fit on training data only inside a scikit-learn Pipeline. Calendar mechanism (visitor density on weekends) is an inferred assumption — flag in the report.
+- Phase 3: complete. Random (not temporal) split. Single 80/20 stratified-grouped hold-out (`random_state=42`), grouped by `session_id = Hectare + "_" + Shift + "_" + Date` to prevent within-session leakage; 5-fold `StratifiedGroupKFold` `GridSearchCV` on the 80% training portion using a `predict_proba`-based metric for hyperparameter selection. Threshold tuned on training out-of-fold probabilities (real models only, not dummy) to maximise macro-F1, then applied once to the test set. Bootstrap CIs (~1,000 resamples) on test metrics. Preprocessing fitted only on training data inside an sklearn `Pipeline` / `ColumnTransformer` (median/constant imputers, OHE, StandardScaler for LR/KNN). Owner split: preprocessing teammate builds `session_id` and deterministic rewrites; modelling teammate owns the pipeline including standardisation. Class imbalance handled via `class_weight="balanced"` + threshold tuning; no SMOTE/oversampling. `DummyClassifier(strategy="most_frequent")` as the floor baseline. Phase 1 Q4 (data sufficiency) confirmed defensible — flag small test set (~32 approach rows) as a report limitation.
 - Phase 4: pending.
 - Phase 5: pending.

@@ -4,10 +4,10 @@ This file is the working brief for AI-assisted coding and analysis in this proje
 
 For staged clarification work, use the phase tracker:
 
-- [Phase 0: Understand The Datasets](PROJECT_PHASES.md#phase-0-understand-the-datasets)
-- [Phase 1: Research Question Clarification](PROJECT_PHASES.md#phase-1-research-question-clarification)
-- [Phase 2: Predictors](PROJECT_PHASES.md#phase-2-predictors)
-- [Phase 3: Train/Test Split](PROJECT_PHASES.md#phase-3-traintest-split)
+- [Phase 0: Understand The Datasets](PROJECT_PHASES.md#phase-0-understand-the-datasets) ✅ complete
+- [Phase 1: Research Question Clarification](PROJECT_PHASES.md#phase-1-research-question-clarification) ✅ complete
+- [Phase 2: Predictors](PROJECT_PHASES.md#phase-2-predictors) ✅ complete
+- [Phase 3: Train/Test Split](PROJECT_PHASES.md#phase-3-traintest-split) ✅ complete
 - [Phase 4: Prediction Model Selection](PROJECT_PHASES.md#phase-4-prediction-model-selection)
 - [Phase 5: Metrics Selection](PROJECT_PHASES.md#phase-5-metrics-selection)
 
@@ -79,26 +79,33 @@ Never use these as predictors in the main models:
 - `Other Interactions`: likely leaks target-like information through free text.
 - `Unique Squirrel ID`, `Lat/Long`, and `Combination of Primary and Highlight Color`: ID/duplicate/composite fields that add little interpretable value.
 - `Hectare Squirrel Number`: observation ordering within hectare, not a meaningful behavioural cause.
+- Raw `Hectare` ID: high-cardinality + within-hectare leakage on a random split (Phase 0).
+- Raw `Date` and `day_of_week`: only `is_weekend` is retained (Phase 2).
+- Raw `Location`, raw `Above Ground Sighter Measurement`, raw `Sighter Observed Weather Data`, raw `Other Animal Sightings`, raw `Highlight Fur Color`: replaced by engineered features (Phase 2).
+- High-null free text: `Color notes`, `Other Activities`, `Specific Location`.
+- `activity_count`, `is_active`, `vocalisation_count`, `tail_signal_count`: summed counts are perfect linear combinations of the underlying flags; flags-only chosen (Phase 2).
+- `animals_humans_present`: every observation was made by a human sighter, so the flag is near-constant and risks being read as causal (Phase 2).
 
-Recommended predictor groups:
+Final predictor groups (Phase 2 decisions; see [PROJECT_PHASES.md#phase-2-predictors](PROJECT_PHASES.md#phase-2-predictors) for full rationale):
 
-- Behaviour flags: `Running`, `Chasing`, `Climbing`, `Eating`, `Foraging`.
-- Signal flags: `Kuks`, `Quaas`, `Moans`, `Tail flags`, `Tail twitches`.
-- Time: `Shift`, parsed `Date`, optional day index.
-- Spatial: `X`, `Y`, `Hectare`, `Location`, parsed numeric `Above Ground Sighter Measurement`.
-- Squirrel characteristics: `Age`, `Primary Fur Color`, optionally simplified highlight colour flags.
-- Hectare context after joining on `Hectare`, `Shift`, `Date`: litter level, hectare conditions, other-animal flags, number of sighters, number of squirrels, total sighting time.
+- Behaviour flags (kept individually, no summed counts): `Running`, `Chasing`, `Climbing`, `Eating`, `Foraging`.
+- Signal flags (kept individually, no summed counts): `Kuks`, `Quaas`, `Moans`, `Tail flags`, `Tail twitches`.
+- Time: `Shift`, `is_weekend` (raw `Date` and `day_of_week` excluded).
+- Spatial: `X`, `Y` (standardised, train-only fit), `is_above_ground`, `above_ground_numeric`, `location_missing`. Raw `Hectare`, raw `Location`, raw `Above Ground Sighter Measurement` excluded.
+- Squirrel characteristics: `Age` (treat `"?"` as missing), `Primary Fur Color`, plus per-colour highlight flags `highlight_white`, `highlight_cinnamon`, `highlight_black`, `highlight_missing` (raw `Highlight Fur Color` excluded).
+- Hectare context after joining on `Hectare`, `Shift`, `Date`: `Litter` (encode missing as `"Unknown"`), `Hectare Conditions` (fold `"Medium"` typo into `"Moderate"`), `Number of sighters`, `Number of Squirrels`, `Total Time of Sighting`, parsed `temperature_f` and `sky_condition` from `Sighter Observed Weather Data`, animal-keyword flags `animals_dogs_present`, `animals_cats_present`, `animals_hawks_present`, `animals_pigeons_present`, `animals_data_missing`, and `squirrel_density_proxy`. `animals_humans_present` is excluded as a collection-bias artefact.
 
-Useful engineered features:
+Engineered feature definitions:
 
-- `activity_count`: sum of `Running`, `Chasing`, `Climbing`, `Eating`, `Foraging`.
-- `is_active`: whether any activity flag is true.
-- `vocalisation_count`: sum of `Kuks`, `Quaas`, `Moans`.
-- `tail_signal_count`: sum of `Tail flags`, `Tail twitches`.
-- `above_ground_numeric`: numeric height parsed from `Above Ground Sighter Measurement`.
-- `is_above_ground`: from `Location == "Above Ground"`.
-- `animals_humans_present`, `animals_dogs_present`: keyword flags parsed from `Other Animal Sightings`.
-- `squirrel_density_proxy`: `Number of Squirrels` divided by `Total Time of Sighting`, where valid.
+- `is_above_ground`: `True` if `Location == "Above Ground"`, else `False`.
+- `above_ground_numeric`: numeric height parsed from `Above Ground Sighter Measurement` when `Location == "Above Ground"`; `0` when `Location == "Ground Plane"`; median-impute (train-only) when missing.
+- `location_missing`: `True` if `Location` is null, else `False`.
+- `is_weekend`: `True` if the parsed date is Saturday/Sunday, else `False`. Mechanism (weekend visitor density → behaviour shift) is inferred, not stated in the spec — flag as an assumption in the report.
+- `highlight_white` / `highlight_cinnamon` / `highlight_black`: `True` if the colour name appears in `Highlight Fur Color`, else `False`. `highlight_missing`: `True` if `Highlight Fur Color` is null, else `False`.
+- `animals_dogs_present` / `animals_cats_present` / `animals_hawks_present` / `animals_pigeons_present`: `True` if the keyword (case-insensitive) appears in `Other Animal Sightings`, else `False`. `animals_data_missing`: `True` if `Other Animal Sightings` is null, else `False`.
+- `temperature_f`: numeric temperature parsed from `Sighter Observed Weather Data` (regex `\d+`); median-impute (train-only) for nulls and parse failures.
+- `sky_condition`: coarse keyword match on `Sighter Observed Weather Data` (`clear`, `overcast`, `cloudy`, `rain`); missing → `"Unknown"`; one-hot encode.
+- `squirrel_density_proxy`: `Number of Squirrels` / `Total Time of Sighting` (squirrels per minute); median-impute (train-only) where undefined.
 
 ## Preprocessing Expectations
 
@@ -115,8 +122,14 @@ Minimum expected steps:
 - One-hot encode categorical variables inside a pipeline.
 - Standardise numeric variables for models that need scaling, such as logistic regression or k-nearest neighbours.
 - Merge `squirrel.csv` with `hectare.csv` using `Hectare`, `Shift`, and `Date`; document that one squirrel join key currently has no matching hectare row.
+- Build `session_id = Hectare + "_" + Shift + "_" + Date` during preprocessing. Used as the `groups` argument to `StratifiedGroupKFold`. **Not** a predictor.
 
 Avoid preprocessing leakage: fit imputers, encoders, scalers, and feature selection only on training data.
+
+**Task allocation between teammates:**
+
+- **Data preprocessing teammate:** deterministic rewrites of raw data — boolean/date parsing, target relabelling (A+I → approach, I+R → avoid) and conflict-row drop (A+R, A+I+R), free-text parsing into keyword flags, joining squirrel ↔ hectare, type fixes (`Age == "?"` → NaN, parsing `Above Ground Sighter Measurement`), folding `Hectare Conditions` `"Medium"` → `"Moderate"`, building `session_id`. Output: a single clean modelling table.
+- **Modelling teammate:** the sklearn `Pipeline` / `ColumnTransformer` — imputers (`SimpleImputer(strategy="median")` numeric, `SimpleImputer(strategy="constant", fill_value="Unknown")` categorical), `OneHotEncoder(handle_unknown="ignore")`, and `StandardScaler` for LR/KNN (not for tree models). Rule of thumb: anything where "fit on train, transform test" matters lives in modelling code.
 
 ## Supervised Learning Plan
 
@@ -132,9 +145,12 @@ At least two real supervised models must be reported. The dummy model is a basel
 
 Recommended evaluation setup:
 
-- Use a stratified train/test split, such as 80/20.
-- Use cross-validation on the training set for hyperparameter choices.
-- Use a fixed random seed for reproducibility.
+- **Split: 80/20, stratified by class AND grouped by `session_id`** (not row-level random). Each (Hectare, Shift, Date) session contributes multiple squirrel rows that share identical hectare-context features; a row-level random split would leak session context across train/test. Use `StratifiedGroupKFold` with `groups=session_id`, `random_state=42`. Expected sizes: ~643 train / ~161 test, with ~32 approach in test.
+- **Inner CV: 5-fold `StratifiedGroupKFold`** on the 80% training portion, inside `GridSearchCV`, for hyperparameter selection. Inner-CV scoring uses a `predict_proba`-based metric (e.g. `average_precision` or `roc_auc`) so hyperparameter choice is threshold-independent.
+- **Threshold tuning** (real models only, not dummy): after hyperparameter selection, use `cross_val_predict(method="predict_proba", cv=StratifiedGroupKFold(5))` on the training set to obtain out-of-fold probabilities, sweep thresholds (e.g. 0.05–0.95 in 0.01 steps), pick the one maximising macro-F1, then apply once to the test set.
+- **Confidence intervals: bootstrap-resample the test set** (~1,000 resamples with replacement; report 2.5th/97.5th percentiles) for each metric. Small test set (~32 approach rows) is acknowledged as a report limitation.
+- Use a fixed random seed (`random_state=42`) throughout for reproducibility.
+- **Class imbalance**: use `class_weight="balanced"` on LR / decision tree / random forest. **Do not** use SMOTE or other resampling — most predictors are sparse booleans / OHE'd categoricals, where synthetic interpolation injects noise. `class_weight` and stratification are complementary: stratification controls fold composition, `class_weight` controls training behaviour. Both required.
 - Primary metrics: macro F1, balanced accuracy, precision, recall, and confusion matrix.
 - If using probability outputs, include ROC-AUC or PR-AUC, but explain what they mean in the imbalanced setting.
 - Discuss false positives and false negatives in context: predicting approach incorrectly is different from predicting avoid incorrectly.
