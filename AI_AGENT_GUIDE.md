@@ -84,7 +84,6 @@ Never use these as predictors in the main models:
 - Raw `Location`, raw `Above Ground Sighter Measurement`, raw `Sighter Observed Weather Data`, raw `Other Animal Sightings`, raw `Highlight Fur Color`: replaced by engineered features (Phase 2).
 - High-null free text: `Color notes`, `Other Activities`, `Specific Location`.
 - `activity_count`, `is_active`, `vocalisation_count`, `tail_signal_count`: summed counts are perfect linear combinations of the underlying flags; flags-only chosen (Phase 2).
-- `animals_humans_present`: every observation was made by a human sighter, so the flag is near-constant and risks being read as causal (Phase 2).
 
 Final predictor groups (Phase 2 decisions; see [PROJECT_PHASES.md#phase-2-predictors](PROJECT_PHASES.md#phase-2-predictors) for full rationale):
 
@@ -92,8 +91,8 @@ Final predictor groups (Phase 2 decisions; see [PROJECT_PHASES.md#phase-2-predic
 - Signal flags (kept individually, no summed counts): `Kuks`, `Quaas`, `Moans`, `Tail flags`, `Tail twitches`.
 - Time: `Shift`, `is_weekend` (raw `Date` and `day_of_week` excluded).
 - Spatial: `X`, `Y` (standardised, train-only fit), `is_above_ground`, `above_ground_numeric`, `location_missing`. Raw `Hectare`, raw `Location`, raw `Above Ground Sighter Measurement` excluded.
-- Squirrel characteristics: `Age` (treat `"?"` as missing), `Primary Fur Color`, plus per-colour highlight flags `highlight_white`, `highlight_cinnamon`, `highlight_black`, `highlight_missing` (raw `Highlight Fur Color` excluded).
-- Hectare context after joining on `Hectare`, `Shift`, `Date`: `Litter` (encode missing as `"Unknown"`), `Hectare Conditions` (fold `"Medium"` typo into `"Moderate"`), `Number of sighters`, `Number of Squirrels`, `Total Time of Sighting`, parsed `temperature_f` and `sky_condition` from `Sighter Observed Weather Data`, animal-keyword flags `animals_dogs_present`, `animals_cats_present`, `animals_hawks_present`, `animals_pigeons_present`, `animals_data_missing`, and `squirrel_density_proxy`. `animals_humans_present` is excluded as a collection-bias artefact.
+- Squirrel characteristics: `Age` (treat `"?"` as missing), `Primary Fur Color`, plus per-colour highlight flags `highlight_gray`, `highlight_white`, `highlight_cinnamon`, `highlight_black`, `highlight_missing` (raw `Highlight Fur Color` excluded).
+- Hectare context after joining on `Hectare`, `Shift`, `Date`: `Litter` (encode missing as `"Unknown"`), `Hectare Conditions` (fold `"Medium"` typo into `"Moderate"`), `Number of sighters`, `Number of Squirrels`, `Total Time of Sighting`, parsed `temperature_f` and `sky_condition` from `Sighter Observed Weather Data`, animal-keyword flags from `Other Animal Sightings` (final keyword set TBD by the preprocessing teammate; `animals_humans_present` is now included, and `animals_data_missing` covers nulls), and `squirrel_density_proxy`.
 
 Engineered feature definitions:
 
@@ -101,8 +100,8 @@ Engineered feature definitions:
 - `above_ground_numeric`: numeric height parsed from `Above Ground Sighter Measurement` when `Location == "Above Ground"`; `0` when `Location == "Ground Plane"`; median-impute (train-only) when missing.
 - `location_missing`: `True` if `Location` is null, else `False`.
 - `is_weekend`: `True` if the parsed date is Saturday/Sunday, else `False`. Mechanism (weekend visitor density → behaviour shift) is inferred, not stated in the spec — flag as an assumption in the report.
-- `highlight_white` / `highlight_cinnamon` / `highlight_black`: `True` if the colour name appears in `Highlight Fur Color`, else `False`. `highlight_missing`: `True` if `Highlight Fur Color` is null, else `False`.
-- `animals_dogs_present` / `animals_cats_present` / `animals_hawks_present` / `animals_pigeons_present`: `True` if the keyword (case-insensitive) appears in `Other Animal Sightings`, else `False`. `animals_data_missing`: `True` if `Other Animal Sightings` is null, else `False`.
+- `highlight_gray` / `highlight_white` / `highlight_cinnamon` / `highlight_black`: `True` if the colour name appears in `Highlight Fur Color`, else `False`. `highlight_missing`: `True` if `Highlight Fur Color` is null, else `False`. The four colours are the closed vocabulary documented in the data dictionary.
+- Animal-keyword flags from `Other Animal Sightings`: case-insensitive substring match per keyword; `True` if the keyword appears, else `False`. `animals_humans_present` is included (re-added Phase 2 revisit). `animals_data_missing`: `True` if `Other Animal Sightings` is null, else `False`. Final keyword set (beyond `human`) is delegated to the preprocessing teammate, who will inspect the free-text vocabulary across the full dataset and decide which species to flag.
 - `temperature_f`: numeric temperature parsed from `Sighter Observed Weather Data` (regex `\d+`); median-impute (train-only) for nulls and parse failures.
 - `sky_condition`: coarse keyword match on `Sighter Observed Weather Data` (`clear`, `overcast`, `cloudy`, `rain`); missing → `"Unknown"`; one-hot encode.
 - `squirrel_density_proxy`: `Number of Squirrels` / `Total Time of Sighting` (squirrels per minute); median-impute (train-only) where undefined.
