@@ -212,21 +212,37 @@ Decision status: Q1–Q5 closed. Phase 3 complete.
 
 Goal: choose the supervised models and their tuning ranges.
 
-Current questions:
+### Decisions
 
-- Should the project use two or three supervised models?
-- Which models best balance interpretability, performance, and assignment scope?
-- What hyperparameters should be tuned for each model?
-- Which model is best for feature influence and explanation?
+- **Q1+Q2 (closed): Two main supervised models — Logistic Regression and Random Forest — plus a `most_frequent` dummy baseline.**
+  - **Baseline: `DummyClassifier(strategy="most_frequent")`.** Predicts `avoid` for every row (the larger class). Deterministic, recall on `approach` = 0, accuracy ≈ 81%. Reference floor only — any reported model must beat 0 minority recall to be worth keeping. `strategy="stratified"` rejected because it adds noise without changing the accuracy floor.
+  - **Model 1: Logistic Regression.** Linear, interpretable via signed standardised coefficients — directly answers the "which features are most influential" half of the research question. `class_weight="balanced"` handles the imbalance.
+  - **Model 2: Random Forest.** Nonlinear, captures behaviour × location × context interactions, gives both impurity-based and permutation feature importance. Compared against alternatives:
+    - **vs single Decision Tree**: RF has lower variance, more reliable importances (single-tree importances flip across reseeds), better predictive performance on 643 train × ~50 OHE'd features. A small `DecisionTreeClassifier(max_depth=3)` may be fitted *post hoc* purely as a visual rule-extraction exhibit for the discussion section, but is not an evaluated model.
+    - **vs SVC (RBF kernel)**: SVC is interpretation-hostile (no per-feature signal natively), expensive to tune (`C` × `gamma`), and struggles with high-dimensional sparse OHE inputs.
+    - **vs KNN**: KNN suffers in high-dimensional space (distance loses meaning), has no native `class_weight` support, and provides nothing for the feature-influence half of the research question.
+  - Two models, not three: the rubric rewards depth over count, and RF subsumes a single tree on performance. A third evaluated model would dilute the analysis.
 
-Expected output of this phase:
+- **Q3 (closed): Hyperparameter grids — small, justified, ~35 total fits.**
+  - **Inner CV scorer: `average_precision`** for both LR and RF. Threshold-independent (uses `predict_proba` directly), minority-class-sensitive, decouples hyperparameter selection from the later threshold-tuning step. Rejected alternatives: F1 (requires a threshold, contaminates the later threshold sweep at default 0.5); Brier (measures calibration not ranking — we only need ranking quality so the threshold sweep can find a good cut).
+  - **Logistic Regression grid:**
+    - Tuned: `C ∈ {0.01, 0.1, 1, 10}` — 4 candidates.
+    - Fixed: `penalty="l1"` (sparser coefficients, automatic feature selection, easier interpretation), `solver="liblinear"` (l1-compatible), `max_iter=2000`, `class_weight="balanced"`, `random_state=42`.
+    - 4 candidates × 5 folds = 20 fits.
+  - **Random Forest grid:**
+    - Tuned: `max_depth ∈ {None, 10, 20}` — 3 candidates. `None` relies on bagging for regularisation; `20` is bounded but generous; `10` is shallower bias/variance trade-off.
+    - Fixed: `n_estimators=500` (monotonic — more trees rarely hurt; gains plateau well before this on 643 rows), `max_features="sqrt"` (standard for classification RF), `min_samples_leaf=1` (forcing larger leaves on small imbalanced data risks erasing the minority signal after bagging — `class_weight="balanced"` and `max_depth` are the regularisation knobs), `class_weight="balanced"`, `random_state=42`, `n_jobs=-1`.
+    - 3 candidates × 5 folds = 15 fits.
+  - **Total: ~35 fits**, very cheap.
+  - **GridSearchCV mechanics**: each candidate scored on every fold, fold scores **averaged** per candidate, candidate with the highest mean wins, refit once on the full 80% training set. Not majority-vote across folds.
 
-- Final model list.
-- Hyperparameter grid or small set of justified values.
-- Baseline model definition.
-- Rationale for why each model is suitable for the research question.
+- **Q4 (closed): Feature influence — three complementary methods.**
+  - **LR standardised coefficients (primary for LR)**: requires standardising all numeric features in the LR `ColumnTransformer` so coefficient magnitudes are comparable across features. Without standardisation, magnitudes reflect feature scales, not influence. After standardisation, β = "log-odds shift in `approach` per 1-SD change in this feature." OHE dummies are aggregated back to parent feature (e.g. sum `|β|` across `Primary Fur Color` levels).
+  - **RF impurity-based importance (primary for RF, structural view)**: free during training, stable across 500 trees, but biased toward high-cardinality features (continuous + many-level OHE). Already on a comparable scale (sums to 1). RF does **not** require standardisation — tree splits are scale-invariant.
+  - **RF permutation importance on the held-out test set (primary for RF, predictive view)**: shuffles each column ~30 times, measures held-out AP drop. Model-agnostic, no cardinality bias, directly tied to predictive performance, but understates correlated features (each shuffled alone leaves the other intact). Already on a comparable scale (units of metric drop). Also scale-invariant.
+  - **Reporting plan**: present LR coefficients and RF permutation importance side-by-side as the primary cross-model comparison. RF impurity importance kept as a secondary check (appendix or sensitivity figure) — agreement between impurity and permutation strengthens claims, disagreement triggers a discussion of cardinality bias or feature correlation. Final decision on whether both RF methods appear in the main report is deferred to writing time.
 
-Decision status: open.
+Decision status: Q1–Q4 closed. Phase 4 complete.
 
 ## Phase 5: Metrics Selection
 
@@ -255,5 +271,5 @@ Decision status: open.
 - **Phase 1**: complete. Target = binary `approach` (158) vs `avoid` (658), 804 rows after relabelling `A+I → approach` and `I+R → avoid`. Three-class out of scope. Excluded: exact indifferent (1,407), no-interaction (780), genuine conflicts `A+R` + `A+I+R` (20).
 - **Phase 2**: complete. Final predictor set spans behaviour flags (5), signal flags (5), time (`Shift`, `is_weekend`), spatial (`X`, `Y` standardised, `is_above_ground`, `above_ground_numeric`, `location_missing`), individual (`Age`, `Primary Fur Color`, five `highlight_*` flags for gray/white/cinnamon/black/missing), and hectare context (`Litter`, `Hectare Conditions`, animal-keyword flags including `animals_humans_present` and `animals_dogs_present` plus additional species TBD by the preprocessing teammate + `animals_data_missing`, `Number of sighters`, `Number of Squirrels`, `Total Time of Sighting`, `temperature_f`, `sky_condition`, `squirrel_density_proxy`). Excluded: target leakers, ID/composite fields, raw `Hectare`, raw `Date` and `day_of_week`, raw `Location`/`Above Ground`/`Weather`/`Animal Sightings`/`Highlight` (replaced by engineered features), all summed activity/signal counts (flags-only), and `Specific Location`.
 - **Phase 3**: complete. Random (not temporal) split. Single 80/20 stratified-grouped hold-out (`random_state=42`), grouped by `session_id`. 5-fold `StratifiedGroupKFold` `GridSearchCV` on the 80% training portion using a `predict_proba`-based metric. Threshold tuned on training out-of-fold probabilities (real models only) to maximise macro-F1, applied once to the test set. Bootstrap CIs (~1,000 resamples) on test metrics. Preprocessing fitted only on training data inside an sklearn `Pipeline` / `ColumnTransformer` (median/constant imputers, OHE, `StandardScaler` for LR/KNN). Class imbalance handled via `class_weight="balanced"` + threshold tuning; no SMOTE.
-- **Phase 4**: pending.
+- **Phase 4**: complete. Two main models — Logistic Regression and Random Forest — plus a `most_frequent` dummy baseline. LR: l1 penalty (fixed), liblinear solver, `class_weight="balanced"`, grid `C ∈ {0.01, 0.1, 1, 10}`, standardised numeric inputs (required for comparable coefficients). RF: `n_estimators=500`, `max_features="sqrt"`, `min_samples_leaf=1`, `class_weight="balanced"` all fixed, grid `max_depth ∈ {None, 10, 20}`, no scaling. Inner-CV scorer `average_precision` (ranking quality, threshold-free, minority-aware). ~35 total fits across both models. Feature influence via LR standardised coefficients + RF permutation importance (primary) with RF impurity importance as a secondary cross-check.
 - **Phase 5**: pending.

@@ -8,7 +8,7 @@ For staged clarification work, use the phase tracker:
 - [Phase 1: Research Question Clarification](PROJECT_PHASES.md#phase-1-research-question-clarification) ✅ complete
 - [Phase 2: Predictors](PROJECT_PHASES.md#phase-2-predictors) ✅ complete
 - [Phase 3: Train/Test Split](PROJECT_PHASES.md#phase-3-traintest-split) ✅ complete
-- [Phase 4: Prediction Model Selection](PROJECT_PHASES.md#phase-4-prediction-model-selection)
+- [Phase 4: Prediction Model Selection](PROJECT_PHASES.md#phase-4-prediction-model-selection) ✅ complete
 - [Phase 5: Metrics Selection](PROJECT_PHASES.md#phase-5-metrics-selection)
 
 Keep final, stable project decisions in this guide. Keep open questions and phase-by-phase discussion in `PROJECT_PHASES.md`.
@@ -132,48 +132,52 @@ Avoid preprocessing leakage: fit imputers, encoders, scalers, and feature select
 
 ## Supervised Learning Plan
 
-The assignment requires at least two supervised learning models and a meaningful comparison.
+The assignment requires at least two supervised learning models and a meaningful comparison. Final model set fixed in Phase 4: **Logistic Regression + Random Forest**, plus a `most_frequent` dummy baseline.
 
-Recommended model set:
+Model set:
 
-1. Dummy baseline: use `DummyClassifier(strategy="most_frequent")` or `strategy="stratified")` only as a reference point.
-2. Logistic regression: interpretable linear model with `class_weight="balanced"`. Use coefficients to discuss feature influence.
-3. Decision tree or random forest: non-linear model that can capture interactions between behaviour, location, and context. Use class weighting where available and constrain complexity to reduce overfitting.
+1. **Baseline: `DummyClassifier(strategy="most_frequent")`.** Predicts the larger class (`avoid`) for every row. Deterministic; recall on `approach` = 0; accuracy ≈ 81%. Reference floor only — not one of the two reported models. `strategy="stratified"` rejected (adds noise without changing the accuracy floor).
+2. **Logistic Regression.** Linear, interpretable via signed standardised coefficients — directly answers the "which features are most influential" half of the research question. `class_weight="balanced"` for imbalance.
+3. **Random Forest.** Nonlinear, captures behaviour × location × context interactions, supports both impurity-based and permutation feature importance. `class_weight="balanced"`. Chosen over single decision tree (lower variance, more reliable importances), SVC-RBF (interpretation-hostile, expensive), and KNN (no `class_weight`, weak in high-D OHE space).
 
-At least two real supervised models must be reported. The dummy model is a baseline, not one of the two main models.
+Optional discussion exhibit: a small `DecisionTreeClassifier(max_depth=3)` may be fitted *post hoc* purely as a visual rule diagram for the discussion section — not an evaluated model.
 
-Recommended evaluation setup:
+Evaluation setup:
 
 - **Split: 80/20, stratified by class AND grouped by `session_id`** (not row-level random). Each (Hectare, Shift, Date) session contributes multiple squirrel rows that share identical hectare-context features; a row-level random split would leak session context across train/test. Use `StratifiedGroupKFold` with `groups=session_id`, `random_state=42`. Expected sizes: ~643 train / ~161 test, with ~32 approach in test.
-- **Inner CV: 5-fold `StratifiedGroupKFold`** on the 80% training portion, inside `GridSearchCV`, for hyperparameter selection. Inner-CV scoring uses a `predict_proba`-based metric (e.g. `average_precision` or `roc_auc`) so hyperparameter choice is threshold-independent.
+- **Inner CV: 5-fold `StratifiedGroupKFold`** on the 80% training portion, inside `GridSearchCV`, for hyperparameter selection. **Scorer: `average_precision`** (threshold-independent ranking quality, minority-class-sensitive). Rejected: F1 (needs a threshold, contaminates the later threshold sweep at default 0.5); Brier (measures calibration not ranking — we only need ranking quality so the threshold sweep can find a good cut). GridSearchCV averages fold scores per candidate and refits the winner on the full 80% train.
 - **Threshold tuning** (real models only, not dummy): after hyperparameter selection, use `cross_val_predict(method="predict_proba", cv=StratifiedGroupKFold(5))` on the training set to obtain out-of-fold probabilities, sweep thresholds (e.g. 0.05–0.95 in 0.01 steps), pick the one maximising macro-F1, then apply once to the test set.
 - **Confidence intervals: bootstrap-resample the test set** (~1,000 resamples with replacement; report 2.5th/97.5th percentiles) for each metric. Small test set (~32 approach rows) is acknowledged as a report limitation.
 - Use a fixed random seed (`random_state=42`) throughout for reproducibility.
-- **Class imbalance**: use `class_weight="balanced"` on LR / decision tree / random forest. **Do not** use SMOTE or other resampling — most predictors are sparse booleans / OHE'd categoricals, where synthetic interpolation injects noise. `class_weight` and stratification are complementary: stratification controls fold composition, `class_weight` controls training behaviour. Both required.
+- **Class imbalance**: use `class_weight="balanced"` on LR and RF. **Do not** use SMOTE or other resampling — most predictors are sparse booleans / OHE'd categoricals, where synthetic interpolation injects noise. `class_weight` and stratification are complementary: stratification controls fold composition, `class_weight` controls training behaviour. Both required.
 - Primary metrics: macro F1, balanced accuracy, precision, recall, and confusion matrix.
 - If using probability outputs, include ROC-AUC or PR-AUC, but explain what they mean in the imbalanced setting.
 - Discuss false positives and false negatives in context: predicting approach incorrectly is different from predicting avoid incorrectly.
 
-Hyperparameters to justify:
+Hyperparameter grids (kept small — ~35 total fits across both models):
 
-- Logistic regression: regularisation strength `C`, solver, maximum iterations, class weighting.
-- Decision tree: `max_depth`, `min_samples_leaf`, class weighting.
-- Random forest: number of trees, `max_depth`, `min_samples_leaf`, class weighting, random seed.
+- **Logistic Regression** — tuned: `C ∈ {0.01, 0.1, 1, 10}`. Fixed: `penalty="l1"` (sparser, easier interpretation), `solver="liblinear"` (l1-compatible), `max_iter=2000`, `class_weight="balanced"`, `random_state=42`. 4 × 5 = 20 fits.
+- **Random Forest** — tuned: `max_depth ∈ {None, 10, 20}`. Fixed: `n_estimators=500` (monotonic; gains plateau on 643 rows), `max_features="sqrt"`, `min_samples_leaf=1` (forcing larger leaves on small imbalanced data risks erasing the minority signal after bagging), `class_weight="balanced"`, `random_state=42`, `n_jobs=-1`. 3 × 5 = 15 fits.
+
+Pipeline scaling rule:
+
+- **LR pipeline must standardise all numeric features** (`StandardScaler` in the `ColumnTransformer`, fit on train only). Required so coefficient magnitudes are comparable for the feature-influence analysis — without standardisation a coefficient reflects scale (`temperature_f` ~30–90 vs `Number of Squirrels` ~1–15 vs 0/1 flags), not influence. After standardisation, β = "log-odds shift in `approach` per 1-SD change in this feature."
+- **RF pipeline does NOT include `StandardScaler`** — tree splits are scale-invariant, importances unaffected. RF preprocessing = imputers + OHE only.
 
 ## Feature Influence
 
-The research question explicitly asks which features are most influential, so feature interpretation is mandatory.
+The research question explicitly asks which features are most influential, so feature interpretation is mandatory. Three complementary methods, all aggregating OHE dummies back to parent features for cross-method comparison:
 
-Use at least two complementary methods where possible:
+- **LR standardised coefficients** (primary for LR): grouped from OHE back to readable feature names. Requires `StandardScaler` on numeric inputs (already in the LR pipeline) so magnitudes are comparable. β interpreted as "log-odds shift in `approach` per 1-SD change."
+- **RF impurity-based importance** (secondary for RF, structural view): free during training, stable across 500 trees, but biased toward high-cardinality / continuous features. Already on a comparable scale (sums to 1).
+- **RF permutation importance on the held-out test set** (primary for RF, predictive view): ~30 repeats, model-agnostic, no cardinality bias, directly tied to held-out predictive performance. Understates correlated features (each shuffled alone leaves the other intact).
 
-- Logistic regression coefficients after preprocessing, grouped back to readable feature names.
-- Tree-based feature importance for decision tree or random forest.
-- Permutation importance on the held-out test set for model-agnostic comparison.
+Reporting plan: present LR coefficients and RF permutation importance side-by-side as the primary cross-model comparison. RF impurity importance kept as a secondary check (final decision on whether it appears in the main report or appendix is deferred to writing time). Tree splits and permutation are both scale-invariant, so the RF pipeline does not include `StandardScaler`.
 
 Interpret feature influence cautiously:
 
 - Use association language, not causal language.
-- Compare whether the models agree on influential features.
+- Compare whether the models agree on influential features. Convergence between LR coefficients and RF permutation importance is a strong, defensible result; divergence triggers a discussion of cardinality bias (impurity) or feature correlation (permutation).
 - Mention correlated features and possible confounding, such as location, human presence, food availability, and observer effects.
 
 ## Visualisation Checklist
