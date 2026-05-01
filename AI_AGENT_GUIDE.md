@@ -9,7 +9,7 @@ For staged clarification work, use the phase tracker:
 - [Phase 2: Predictors](PROJECT_PHASES.md#phase-2-predictors) ✅ complete
 - [Phase 3: Train/Test Split](PROJECT_PHASES.md#phase-3-traintest-split) ✅ complete
 - [Phase 4: Prediction Model Selection](PROJECT_PHASES.md#phase-4-prediction-model-selection) ✅ complete
-- [Phase 5: Metrics Selection](PROJECT_PHASES.md#phase-5-metrics-selection)
+- [Phase 5: Metrics Selection](PROJECT_PHASES.md#phase-5-metrics-selection) ✅ complete
 
 Keep final, stable project decisions in this guide. Keep open questions and phase-by-phase discussion in `PROJECT_PHASES.md`.
 
@@ -147,12 +147,10 @@ Evaluation setup:
 - **Split: 80/20, stratified by class AND grouped by `session_id`** (not row-level random). Each (Hectare, Shift, Date) session contributes multiple squirrel rows that share identical hectare-context features; a row-level random split would leak session context across train/test. Use `StratifiedGroupKFold` with `groups=session_id`, `random_state=42`. Expected sizes: ~643 train / ~161 test, with ~32 approach in test.
 - **Inner CV: 5-fold `StratifiedGroupKFold`** on the 80% training portion, inside `GridSearchCV`, for hyperparameter selection. **Scorer: `average_precision`** (threshold-independent ranking quality, minority-class-sensitive). Rejected: F1 (needs a threshold, contaminates the later threshold sweep at default 0.5); Brier (measures calibration not ranking — we only need ranking quality so the threshold sweep can find a good cut). GridSearchCV averages fold scores per candidate and refits the winner on the full 80% train.
 - **Threshold tuning** (real models only, not dummy): after hyperparameter selection, use `cross_val_predict(method="predict_proba", cv=StratifiedGroupKFold(5))` on the training set to obtain out-of-fold probabilities, sweep thresholds (e.g. 0.05–0.95 in 0.01 steps), pick the one maximising macro-F1, then apply once to the test set.
-- **Confidence intervals: bootstrap-resample the test set** (~1,000 resamples with replacement; report 2.5th/97.5th percentiles) for each metric. Small test set (~32 approach rows) is acknowledged as a report limitation.
+- **Confidence intervals: bootstrap-resample the test set** (~1,000 resamples with replacement; report 2.5th/97.5th percentiles) for each point-estimate metric. **Use the same bootstrap indices across all metrics** so CIs are paired and directly comparable. Small test set (~32 approach rows) is acknowledged as a report limitation.
 - Use a fixed random seed (`random_state=42`) throughout for reproducibility.
 - **Class imbalance**: use `class_weight="balanced"` on LR and RF. **Do not** use SMOTE or other resampling — most predictors are sparse booleans / OHE'd categoricals, where synthetic interpolation injects noise. `class_weight` and stratification are complementary: stratification controls fold composition, `class_weight` controls training behaviour. Both required.
-- Primary metrics: macro F1, balanced accuracy, precision, recall, and confusion matrix.
-- If using probability outputs, include ROC-AUC or PR-AUC, but explain what they mean in the imbalanced setting.
-- Discuss false positives and false negatives in context: predicting approach incorrectly is different from predicting avoid incorrectly.
+- See **Metrics and Evaluation** below for the full reporting plan (Phase 5 decisions).
 
 Hyperparameter grids (kept small — ~35 total fits across both models):
 
@@ -163,6 +161,26 @@ Pipeline scaling rule:
 
 - **LR pipeline must standardise all numeric features** (`StandardScaler` in the `ColumnTransformer`, fit on train only). Required so coefficient magnitudes are comparable for the feature-influence analysis — without standardisation a coefficient reflects scale (`temperature_f` ~30–90 vs `Number of Squirrels` ~1–15 vs 0/1 flags), not influence. After standardisation, β = "log-odds shift in `approach` per 1-SD change in this feature."
 - **RF pipeline does NOT include `StandardScaler`** — tree splits are scale-invariant, importances unaffected. RF preprocessing = imputers + OHE only.
+
+## Metrics and Evaluation
+
+Phase 5 decisions. All metrics are computed on the held-out 20% test set unless stated otherwise.
+
+**Primary metric:** macro-F1. Matches the threshold-tuning objective from Phase 3, weights both classes equally under the 82/18 imbalance, interpretable to non-ML readers.
+
+**Secondary test-set metrics:** balanced accuracy, per-class precision and recall on `approach`, PR-AUC (average precision), confusion matrix. Accuracy reported only as the dummy-baseline floor (~81%).
+
+**Not reported:** ROC-AUC (inflated under 82/18 imbalance), weighted-F1 (collapses to majority class), accuracy as a headline.
+
+**Uncertainty (test set):** 95% bootstrap CIs (~1,000 resamples, 2.5/97.5 percentiles) on macro-F1, balanced accuracy, per-class precision/recall on `approach`, and PR-AUC. **Same bootstrap indices reused across all metrics** for paired comparability. No CI on confusion-matrix counts. No inner-CV std reported. Wide CIs (~32 `approach` rows in test) flagged as a report limitation.
+
+**Generalisation check:** report training-set point estimates of macro-F1, balanced accuracy, and PR-AUC alongside test results. Train inside or near test bootstrap CI = healthy generalisation; train far above test CI upper bound = overfitting gap to discuss. **No bootstrap CI on training metrics** — resubstitution scores measure uncertainty on data the model has already seen.
+
+**Hyperparameter selection evidence:** include a small grid-search table from `GridSearchCV.cv_results_` showing mean inner-CV `average_precision` for all 7 candidates (4 LR `C` values + 3 RF `max_depth` values). Methods or appendix placement, no std. This justifies the chosen hyperparameters; the inner-CV-vs-test PR-AUC comparison is **not** reported (generalisation argument rests on train-vs-test alone).
+
+**Confusion matrix interpretation:** `approach` as positive class. Discuss FN (true approach predicted as avoid — model misses an approacher, low cost) vs FP (true avoid predicted as approach — model overclaims, more misleading for the research question) qualitatively. No numerical cost weights.
+
+**Runtime / storage:** one-line methodology mention only ("LR and RF both train in <1 minute on a laptop; runtime is not a differentiator at this scale"). Not a results-section topic.
 
 ## Feature Influence
 

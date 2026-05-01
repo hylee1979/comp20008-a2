@@ -248,22 +248,32 @@ Decision status: Q1–Q4 closed. Phase 4 complete.
 
 Goal: decide how model performance will be evaluated and communicated.
 
-Current questions:
+### Decisions
 
-- Which metrics are most suitable for the research question?
-- How should metrics reflect class imbalance?
-- With cross-validation, should we report confidence intervals, standard deviations, or error bars?
-- Is model training cost worth discussing, such as runtime and storage?
+- **Q1 (closed): Which metrics are most suitable for the research question?**
+  - **Primary: macro-F1.** Matches the threshold-tuning objective from Phase 3, weights both classes equally under the 82/18 imbalance, and is interpretable to non-ML readers.
+  - **Secondary on test set**: balanced accuracy, per-class precision and recall on `approach`, PR-AUC (average precision), and the confusion matrix. Accuracy shown only as the dummy-baseline floor (~81%).
+  - **Not used**: ROC-AUC (inflated under 82/18 imbalance because the FPR denominator is large); weighted-F1 (collapses to majority-class performance); accuracy as a headline (dummy already achieves ~81%).
 
-Expected output of this phase:
+- **Q2 (closed): How should metrics reflect class imbalance?** Removed — already covered by the metric choices in Q1 (macro-F1, balanced accuracy, PR-AUC, per-class breakdown).
 
-- Primary metric.
-- Secondary metrics.
-- Confusion matrix interpretation plan.
-- Cross-validation uncertainty reporting plan.
-- Decision about whether runtime/storage is relevant enough to report.
+- **Q3 (closed): With cross-validation, should we report confidence intervals, standard deviations, or error bars?**
+  - **95% bootstrap CIs on the test set** (~1,000 resamples, 2.5/97.5 percentiles) for macro-F1, balanced accuracy, per-class precision/recall on `approach`, and PR-AUC. Use the **same bootstrap indices across all metrics** so CIs are paired and directly comparable.
+  - **No CI on the confusion matrix** — report raw counts; per-class precision/recall CIs already capture the relevant uncertainty.
+  - **No inner-CV std reported.** 5 fold scores are too thin a basis for a meaningful std, and inner-CV measures training-fold stability rather than generalisation.
+  - Acknowledge in the report that with ~32 `approach` rows in test, bootstrap CIs will be wide — this is a stated limitation, not a hidden one.
 
-Decision status: open.
+- **Q4 (closed): Is model training cost worth discussing?** No. ~35 total fits on 643 rows runs in seconds-to-minutes; storage is trivial. One sentence in methodology ("LR and RF both train in <1 minute on a laptop; runtime is not a differentiator at this scale") and nothing more.
+
+- **Q5 (closed): How do we evaluate generalisation of the model?**
+  - **Train-vs-test point comparison.** Report training-set point estimates of macro-F1, balanced accuracy, and PR-AUC alongside the test results. If the train point estimate sits inside or near the test bootstrap CI, generalisation looks healthy; if train sits far above the test CI upper bound, treat the gap as an overfitting signal in the discussion.
+  - **No bootstrap CI on training metrics.** Resubstitution scores measure uncertainty on data the model has already seen — comparing a "seen-data" CI against a "unseen-data" CI invites overinterpretation. Point estimate vs test CI is the right comparison.
+  - **Hyperparameter selection evidence (separate from generalisation):** include a small grid-search results table from `cv_results_` showing inner-CV mean `average_precision` for all 7 candidates (4 LR `C` values + 3 RF `max_depth` values), to justify the chosen hyperparameters. Methods or appendix placement, no std.
+  - Inner-CV PR-AUC vs test PR-AUC comparison **not reported** — generalisation argument rests on the train-vs-test point comparison alone.
+
+- **Confusion matrix interpretation plan:** `approach` as the positive class. Discuss FN (true approach predicted as avoid — low real-world cost, model misses an approacher) vs FP (true avoid predicted as approach — more misleading for the research question, model overclaims approachers). Qualitative discussion only; no numerical cost weights.
+
+Decision status: Q1–Q5 closed. Phase 5 complete.
 
 ## Phase Decision Log
 
@@ -272,4 +282,4 @@ Decision status: open.
 - **Phase 2**: complete. Final predictor set spans behaviour flags (5), signal flags (5), time (`Shift`, `is_weekend`), spatial (`X`, `Y` standardised, `is_above_ground`, `above_ground_numeric`, `location_missing`), individual (`Age`, `Primary Fur Color`, five `highlight_*` flags for gray/white/cinnamon/black/missing), and hectare context (`Litter`, `Hectare Conditions`, animal-keyword flags including `animals_humans_present` and `animals_dogs_present` plus additional species TBD by the preprocessing teammate + `animals_data_missing`, `Number of sighters`, `Number of Squirrels`, `Total Time of Sighting`, `temperature_f`, `sky_condition`, `squirrel_density_proxy`). Excluded: target leakers, ID/composite fields, raw `Hectare`, raw `Date` and `day_of_week`, raw `Location`/`Above Ground`/`Weather`/`Animal Sightings`/`Highlight` (replaced by engineered features), all summed activity/signal counts (flags-only), and `Specific Location`.
 - **Phase 3**: complete. Random (not temporal) split. Single 80/20 stratified-grouped hold-out (`random_state=42`), grouped by `session_id`. 5-fold `StratifiedGroupKFold` `GridSearchCV` on the 80% training portion using a `predict_proba`-based metric. Threshold tuned on training out-of-fold probabilities (real models only) to maximise macro-F1, applied once to the test set. Bootstrap CIs (~1,000 resamples) on test metrics. Preprocessing fitted only on training data inside an sklearn `Pipeline` / `ColumnTransformer` (median/constant imputers, OHE, `StandardScaler` for LR/KNN). Class imbalance handled via `class_weight="balanced"` + threshold tuning; no SMOTE.
 - **Phase 4**: complete. Two main models — Logistic Regression and Random Forest — plus a `most_frequent` dummy baseline. LR: l1 penalty (fixed), liblinear solver, `class_weight="balanced"`, grid `C ∈ {0.01, 0.1, 1, 10}`, standardised numeric inputs (required for comparable coefficients). RF: `n_estimators=500`, `max_features="sqrt"`, `min_samples_leaf=1`, `class_weight="balanced"` all fixed, grid `max_depth ∈ {None, 10, 20}`, no scaling. Inner-CV scorer `average_precision` (ranking quality, threshold-free, minority-aware). ~35 total fits across both models. Feature influence via LR standardised coefficients + RF permutation importance (primary) with RF impurity importance as a secondary cross-check.
-- **Phase 5**: pending.
+- **Phase 5**: complete. Primary metric = macro-F1 (matches threshold-tuning objective). Secondary test-set metrics = balanced accuracy, per-class precision/recall on `approach`, PR-AUC, confusion matrix. Accuracy shown only as the dummy floor. ROC-AUC and weighted-F1 not reported. Uncertainty = 95% bootstrap CIs (~1,000 resamples, paired indices across metrics) on all point-estimate metrics; no CI on confusion-matrix counts; no inner-CV std. Generalisation evaluated via train-set point estimates of macro-F1 / balanced accuracy / PR-AUC compared against test bootstrap CIs (no train CI). Hyperparameter selection justified via a `cv_results_` grid-search table (mean inner-CV `average_precision` for all 7 candidates), methods or appendix. Confusion matrix interpreted with `approach` as positive class, qualitative FN-vs-FP discussion. Runtime/storage = one-line methodology mention only.
