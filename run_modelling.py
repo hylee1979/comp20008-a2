@@ -3,14 +3,18 @@
 Usage:
 
     python run_modelling.py
-    python run_modelling.py --data data/processed.csv
+    python run_modelling.py --data data/cleaned_table_2.parquet
 
 Outputs are written under outputs/tables/ and outputs/figures/.
 """
 
 import argparse
 import time
+import warnings
 from pathlib import Path
+
+warnings.filterwarnings("ignore", category=FutureWarning)
+warnings.filterwarnings("ignore", category=UserWarning, module=r"sklearn\..*")
 
 from modelling.data import load_processed_data
 from modelling.evaluation import evaluate_all, metrics_to_frame
@@ -26,8 +30,8 @@ def parse_args():
     parser.add_argument(
         "--data", "-d",
         type=Path,
-        default=None,
-        help="Path to the processed CSV. Defaults to data/processed.csv at the project root.",
+        default="data/cleaned_table_2.parquet",
+        help="Path to the processed parquet file. Defaults to data/cleaned_table_2.parquet at the project root.",
     )
     return parser.parse_args()
 

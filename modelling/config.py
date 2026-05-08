@@ -17,7 +17,9 @@ TARGET_COL = "y"
 SESSION_COL = "session_id"
 N_SPLITS_INNER = 5
 
+# ============================================================
 # Predictor groups
+# ============================================================
 NUMERIC_COLS = [
     "X", "Y",
     "above_ground_numeric",
@@ -26,30 +28,75 @@ NUMERIC_COLS = [
     "squirrel_density_proxy",
 ]
 
-CATEGORICAL_COLS = [
-    "Shift", "Age", "Primary Fur Color",
-    "Litter", "Hectare Conditions",
-    "sky_condition",
+# ============================================================
+OHE_COLS = [
+    "Shift",
+    "Age",
+    "Primary Fur Color",
+    "Litter",
+    "weather_condition",
 ]
 
-BEHAVIOUR_FLAGS = ["Running", "Chasing", "Climbing", "Eating", "Foraging"]
-SIGNAL_FLAGS = ["Kuks", "Quaas", "Moans", "Tail flags", "Tail twitches"]
-HIGHLIGHT_FLAGS = [
-    "highlight_gray", "highlight_white", "highlight_cinnamon",
-    "highlight_black", "highlight_missing",
+MULTILABEL_COLS = [
+    "Hectare Conditions",
 ]
-ANIMAL_FLAGS = ["animals_human_present", 'animals_dog_present', 'animals_pigeon_present',
-                'animals_bird_present','animals_sparrow_present', 'animals_duck_present',
-                'animals_data_missing']
+
+CATEGORICAL_COLS = OHE_COLS + MULTILABEL_COLS
+
+CATEGORY_DICT = {
+    # OHE features
+    "Shift": ["AM", "PM"],
+    "Age": ["Adult", "Juvenile"],
+    "Primary Fur Color": ["Black", "Cinnamon", "Gray"],
+    "Litter": ["Abundant", "None", "Some", "Unknown"],
+    "weather_condition": ["cloudy", "rainy", "sunny", "unknown"],
+    # Multi-label features
+    "Hectare Conditions": ["Busy", "Calm", "Moderate"],
+}
+
+# ============================================================
+ALREADY_SPLIT_FLAG_GROUPS = {
+    "behaviour": [
+        "Running", "Chasing", "Climbing", "Eating", "Foraging",
+    ],
+    "signal": [
+        "Kuks", "Quaas", "Moans", "Tail flags", "Tail twitches",
+    ],
+    "highlight": [
+        "highlight_gray",
+        "highlight_white",
+        "highlight_cinnamon",
+        "highlight_black",
+        "highlight_missing",
+    ],
+    "animals": [
+        "animals_human_present",
+        "animals_dog_present",
+        "animals_pigeon_present",
+        "animals_bird_present",
+        "animals_sparrow_present",
+        "animals_duck_present",
+        "animals_data_missing",
+    ],
+}
+
+ALREADY_SPLIT_FLAG_COLS = [
+    col
+    for cols in ALREADY_SPLIT_FLAG_GROUPS.values()
+    for col in cols
+]
+
 OTHER_FLAGS = ["is_weekend", "is_above_ground", "location_missing"]
 
 BOOLEAN_FLAGS = (
-    BEHAVIOUR_FLAGS + SIGNAL_FLAGS + HIGHLIGHT_FLAGS + ANIMAL_FLAGS + OTHER_FLAGS
+    ALREADY_SPLIT_FLAG_COLS + OTHER_FLAGS
 )
 
 ALL_PREDICTOR_COLS = NUMERIC_COLS + CATEGORICAL_COLS + BOOLEAN_FLAGS
 
+# ============================================================
 # Hyperparameter grids
+# ============================================================
 LR_GRID = {"model__C": [0.01, 0.1, 1, 10]}
 LR_FIXED = {
     "penalty": "l1",

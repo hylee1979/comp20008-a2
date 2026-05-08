@@ -1,50 +1,96 @@
 from sklearn.compose import ColumnTransformer
 from sklearn.dummy import DummyClassifier
 from sklearn.ensemble import RandomForestClassifier
-from sklearn.impute import SimpleImputer
 from sklearn.linear_model import LogisticRegression
 from sklearn.pipeline import Pipeline
-from sklearn.preprocessing import OneHotEncoder, StandardScaler
+from sklearn.preprocessing import OneHotEncoder, StandardScaler, FunctionTransformer
+import numpy as np
+import pandas as pd
 
 from modelling.config import (
-    BOOLEAN_FLAGS, CATEGORICAL_COLS, LR_FIXED, NUMERIC_COLS,
+    BOOLEAN_FLAGS, CATEGORY_DICT, OHE_COLS, LR_FIXED, NUMERIC_COLS,
     RANDOM_STATE, RF_FIXED,
 )
 
 
 def resolve_columns(df):
     num = [c for c in NUMERIC_COLS if c in df.columns]
-    cat = [c for c in CATEGORICAL_COLS if c in df.columns]
+    ohe = [c for c in OHE_COLS if c in df.columns]
+    hectare = "Hectare Conditions" if "Hectare Conditions" in df.columns else None
     flag = [c for c in BOOLEAN_FLAGS if c in df.columns]
-    return num, cat, flag
+    return num, ohe, hectare, flag
 
 
 def numeric_branch(scale):
-    steps = [("imputer", SimpleImputer(strategy="median"))] # TODO: should remove imputer, since my teammate has done the preprocessing
     if scale:
-        steps.append(("scaler", StandardScaler())) # standard normal
-    return Pipeline(steps)
+        return Pipeline([("scaler", StandardScaler())])
+    return "passthrough"
 
 
-def categorical_branch():
+def ohe_branch(ohe_cols):
+    ohe = OneHotEncoder(
+                    categories=[CATEGORY_DICT[c] for c in ohe_cols],
+                    handle_unknown="ignore",
+                    sparse_output=False,
+                )
+    return Pipeline([("ohe", ohe)])
+
+
+def encode_hectare_conditions(X):
+    """
+    X: DataFrame with one column: 'Hectare Conditions'
+       value examples:
+       - "Busy, Calm"
+       - "Moderate"
+       - np.nan
+       - ["Busy", "Calm"]  # also allowed
+    return: DataFrame with fixed columns:
+       hectare_condition_Busy / Calm / Moderate
+    """
+    col = X.iloc[:, 0]
+
+    allowed = CATEGORY_DICT["Hectare Conditions"]
+    out = pd.DataFrame(
+        0,
+        index=X.index,
+        columns=[f"hectare_condition_{c}" for c in allowed],
+    )
+
+    for idx, value in col.items():
+        if isinstance(value, list):
+            labels = value
+        elif pd.isna(value):
+            labels = []
+        else:
+            labels = [item.strip() for item in str(value).split(",")]
+
+        for label in labels:
+            if label in allowed:
+                out.loc[idx, f"hectare_condition_{label}"] = 1
+
+    return out
+
+
+def hectare_branch():
+    hectare_transformer = FunctionTransformer(
+        encode_hectare_conditions,
+        validate=False,
+        feature_names_out=lambda self, input_features: np.array(
+            [f"hectare_condition_{c}" for c in CATEGORY_DICT["Hectare Conditions"]]
+        ),
+    )
     return Pipeline([
-        ("imputer", SimpleImputer(strategy="constant", fill_value="Unknown")), # TODO: should remove imputer, since my teammate has done the preprocessing
-        ("ohe", OneHotEncoder(handle_unknown="ignore", sparse_output=False)), # TODO: check if i need this
+        ("hectare", hectare_transformer),
     ])
 
-
-def flag_branch():
-    steps = [("imputer", SimpleImputer(strategy="most_frequent"))] # TODO: should remove imputer, since my teammate has done the preprocessing
-    return Pipeline(steps)
-
-
 def build_lr_pipeline(df):
-    num, cat, flag = resolve_columns(df)
+    num, ohe, hec, flag = resolve_columns(df)
     pre = ColumnTransformer(
         transformers=[
             ("num", numeric_branch(scale=True), num),
-            ("cat", categorical_branch(), cat),
-            ("flag", flag_branch(scale=True), flag),
+            ("ohe", ohe_branch(ohe), ohe),
+            ("hectare", hectare_branch(), [hec] if hec else []),
+            ("flag", "passthrough", flag)
         ],
         remainder="drop",
         verbose_feature_names_out=True,
@@ -53,12 +99,13 @@ def build_lr_pipeline(df):
 
 
 def build_rf_pipeline(df):
-    num, cat, flag = resolve_columns(df)
+    num, ohe, hec, flag = resolve_columns(df)
     pre = ColumnTransformer(
         transformers=[
             ("num", numeric_branch(scale=False), num),
-            ("cat", categorical_branch(), cat),
-            ("flag", flag_branch(scale=False), flag),
+            ("ohe", ohe_branch(ohe), ohe),
+            ("hectare", hectare_branch(), [hec] if hec else []),
+            ("flag", "passthrough", flag)
         ],
         remainder="drop",
         verbose_feature_names_out=True,
