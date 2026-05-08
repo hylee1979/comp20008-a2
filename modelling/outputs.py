@@ -261,19 +261,37 @@ def plot_confusion_matrices(eval_results, des_dir, path=None):
 
 def plot_feature_influence(influence, des_dir, top_n=15, path=None):
     lr_top = influence["lr_coefficients_aggregated"].head(top_n).iloc[::-1]
+    rf_imp_top = influence["rf_impurity"].head(top_n).iloc[::-1]
+    lr_perm_top = influence["lr_permutation"].head(top_n).iloc[::-1]
     rf_top = influence["rf_permutation"].head(top_n).iloc[::-1]
 
-    fig, (ax1, ax2) = plt.subplots(1, 2, figsize=(12, 6))
+    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    ax1, ax2, ax3, ax4 = axes.ravel()
+
     ax1.barh(lr_top["feature"], lr_top["abs_coefficient_sum"], color="tab:blue")
     ax1.set_title(f"LR  top {top_n} by sum |coef|")
     ax1.set_xlabel("Sum of |standardised coefficients|")
 
     ax2.barh(
+        rf_imp_top["feature"], rf_imp_top["impurity_importance"],
+        color="tab:purple",
+    )
+    ax2.set_title(f"RF  top {top_n} impurity importance")
+    ax2.set_xlabel("Mean decrease in impurity")
+
+    ax3.barh(
+        lr_perm_top["feature"], lr_perm_top["perm_importance_mean"],
+        color="tab:orange", xerr=lr_perm_top["perm_importance_std"],
+    )
+    ax3.set_title(f"LR  top {top_n} permutation importance")
+    ax3.set_xlabel("Mean drop in average_precision")
+
+    ax4.barh(
         rf_top["feature"], rf_top["perm_importance_mean"],
         color="tab:green", xerr=rf_top["perm_importance_std"],
     )
-    ax2.set_title(f"RF  top {top_n} permutation importance")
-    ax2.set_xlabel("Mean drop in average_precision")
+    ax4.set_title(f"RF  top {top_n} permutation importance")
+    ax4.set_xlabel("Mean drop in average_precision")
 
     fig.tight_layout()
     out = Path(path) if path is not None else Path(des_dir) / "feature_influence_compare.png"
@@ -282,8 +300,9 @@ def plot_feature_influence(influence, des_dir, top_n=15, path=None):
     print(f"Wrote {relative_path(out)}")
 
 
-def write_outputs(tuned, eval_results, influence, metrics_df, data_path=None):
-    des_dir = create_experiment_dir()
+def write_outputs(tuned, eval_results, influence, metrics_df, data_path=None, des_dir=None):
+    if des_dir is None:
+        des_dir = create_experiment_dir()
     print(f"Saving outputs to {relative_path(des_dir)}")
 
     write_experiment_config(tuned=tuned, data_path=data_path, des_dir=des_dir)

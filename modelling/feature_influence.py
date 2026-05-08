@@ -55,8 +55,8 @@ def rf_impurity_importance(pipeline, raw_categorical):
     return aggregated
 
 
-def rf_permutation_importance(pipeline, X_test, y_test):
-    print(f"Permutation importance: n_repeats={PERM_N_REPEATS}, scoring={INNER_CV_SCORER}")
+def model_permutation_importance(name, pipeline, X_test, y_test):
+    print(f"{name} permutation importance: n_repeats={PERM_N_REPEATS}, scoring={INNER_CV_SCORER}")
     result = permutation_importance(
         pipeline, X_test, y_test,
         n_repeats=PERM_N_REPEATS,
@@ -70,7 +70,7 @@ def rf_permutation_importance(pipeline, X_test, y_test):
         "perm_importance_std": result.importances_std,
     }).sort_values("perm_importance_mean", ascending=False).reset_index(drop=True)
 
-    print("RF permutation top-10 features:")
+    print(f"{name} permutation top-10 features:")
     print(df_perm.head(10).to_string(index=False))
     return df_perm
 
@@ -80,11 +80,13 @@ def analyse_all(tuned, split):
 
     lr_agg, lr_per_dummy = lr_coefficients(tuned["LR"].pipeline, raw_cat)
     rf_imp = rf_impurity_importance(tuned["RF"].pipeline, raw_cat)
-    rf_perm = rf_permutation_importance(tuned["RF"].pipeline, split.X_test, split.y_test)
+    lr_perm = model_permutation_importance("LR", tuned["LR"].pipeline, split.X_test, split.y_test)
+    rf_perm = model_permutation_importance("RF", tuned["RF"].pipeline, split.X_test, split.y_test)
 
     return {
         "lr_coefficients_aggregated": lr_agg,
         "lr_coefficients_per_dummy": lr_per_dummy,
+        "lr_permutation": lr_perm,
         "rf_impurity": rf_imp,
         "rf_permutation": rf_perm,
     }

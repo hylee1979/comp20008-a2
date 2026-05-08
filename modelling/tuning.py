@@ -9,6 +9,7 @@ from modelling.config import (
     INNER_CV_SCORER, LR_GRID, N_SPLITS_INNER, RANDOM_STATE,
     RF_GRID, THRESHOLD_RANGE,
 )
+from modelling.threshold_plots import plot_pr_curve
 
 
 @dataclass
@@ -41,7 +42,7 @@ def grid_search(pipeline, grid, X, y, groups, name):
     return gs.best_estimator_, gs.best_params_, cv_df
 
 
-def tune_threshold(pipeline, X, y, groups, name):
+def tune_threshold(pipeline, X, y, groups, name, output_dir=None):
     proba_oof = cross_val_predict( #TODO: what does cross_val_predict return when method="predict_proba"? check if the columns are in the same order as the classes in y, and if it returns probabilities for both classes or just the positive class
         pipeline, X, y,
         groups=groups,
@@ -55,21 +56,23 @@ def tune_threshold(pipeline, X, y, groups, name):
     ] #TODO: maybe can make a plot of threshold vs score to visualise how the threshold affects the performance, and if there are multiple thresholds that give similar performance. or make PR curve and indicate the chosen threshold on the curve.
     best_idx = int(np.argmax(scores))
     best_t = float(THRESHOLD_RANGE[best_idx])
+    if output_dir is not None:
+        plot_pr_curve(y, proba_oof, best_t, name, output_dir)
     print(f"[{name}] best_threshold={best_t:.2f}  train OOF macro-F1={scores[best_idx]:.4f}")
     return best_t
 
 
-def tune_model(pipeline, grid, X, y, groups, name):
+def tune_model(pipeline, grid, X, y, groups, name, output_dir=None):
     # inner cv for hyperparameter tuning, then refit on the whole training set
     refit_pipeline, best_params, cv_df = grid_search(pipeline, grid, X, y, groups, name)
     # inner cv for threshold tuning, using the refitted pipeline to get OOF probabilities
-    # threshold = tune_threshold(refit_pipeline, X, y, groups, name)
+    threshold = tune_threshold(refit_pipeline, X, y, groups, name, output_dir=output_dir)
     return TunedModel(
         name=name,
         pipeline=refit_pipeline,
         best_params=best_params,
         cv_results=cv_df,
-        threshold=0.5,  # TEMP: set threshold to 0.5 for now, since we are not tuning it in this assignment (to save time
+        threshold=threshold,
     )
 
 
@@ -84,7 +87,7 @@ def fit_dummy(pipeline, X, y):
     )
 
 
-def tune_all(split, build_lr, build_rf, build_dummy):
+def tune_all(split, build_lr, build_rf, build_dummy, output_dir=None):
     """Tune dummy / LR / RF on the training portion of an outer split."""
     tuned = {}
 
@@ -96,6 +99,7 @@ def tune_all(split, build_lr, build_rf, build_dummy):
         build_lr(split.X_train), LR_GRID,
         split.X_train, split.y_train, split.groups_train,
         name="LR",
+        output_dir=output_dir,
     )
 
     print("--- Random Forest ---")
@@ -103,6 +107,7 @@ def tune_all(split, build_lr, build_rf, build_dummy):
         build_rf(split.X_train), RF_GRID,
         split.X_train, split.y_train, split.groups_train,
         name="RF",
+        output_dir=output_dir,
     )
 
     return tuned

@@ -6,8 +6,6 @@ import numpy as np
 # Paths
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 OUTPUT_DIR = PROJECT_ROOT / "outputs"
-TABLE_DIR = OUTPUT_DIR / "tables"
-FIGURE_DIR = OUTPUT_DIR / "figures"
 
 # Reproducibility
 RANDOM_STATE = 42
