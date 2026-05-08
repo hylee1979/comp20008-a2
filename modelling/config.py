@@ -106,7 +106,7 @@ LR_FIXED = {
     "random_state": RANDOM_STATE,
 }
 
-RF_GRID = {"model__max_depth": [None, 10, 20]}
+RF_GRID = {"model__max_depth": [5, 10, 20]}
 RF_FIXED = {
     "n_estimators": 500,
     "max_features": "sqrt",

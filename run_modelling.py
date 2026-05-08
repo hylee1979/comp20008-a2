@@ -5,7 +5,7 @@ Usage:
     python run_modelling.py
     python run_modelling.py --data data/cleaned_table_2.parquet
 
-Outputs are written under outputs/tables/ and outputs/figures/.
+Outputs are written under a timestamped outputs/experiment_YYYYMMDD_HHMMSS/ directory.
 """
 
 import argparse
@@ -71,7 +71,7 @@ def run(data_path=None):
     print("=" * 60)
     print("WRITE OUTPUTS")
     print("=" * 60)
-    write_outputs(tuned, eval_results, influence, metrics_df)
+    write_outputs(tuned, eval_results, influence, metrics_df, data_path=data_path)
 
 
 if __name__ == "__main__":
