@@ -106,11 +106,14 @@ LR_FIXED = {
     "random_state": RANDOM_STATE,
 }
 
-RF_GRID = {"model__max_depth": [5, 10, 20]}
+RF_GRID = {
+    'model__max_depth': [4, 5, 6, 7],
+    'model__min_samples_leaf': [5, 8, 10],
+    'model__min_samples_split': [20, 30, 40, 50]
+}
 RF_FIXED = {
     "n_estimators": 500,
     "max_features": "sqrt",
-    "min_samples_leaf": 1,
     "class_weight": "balanced",
     "random_state": RANDOM_STATE,
     "n_jobs": -1,

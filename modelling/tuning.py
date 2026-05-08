@@ -63,13 +63,13 @@ def tune_model(pipeline, grid, X, y, groups, name):
     # inner cv for hyperparameter tuning, then refit on the whole training set
     refit_pipeline, best_params, cv_df = grid_search(pipeline, grid, X, y, groups, name)
     # inner cv for threshold tuning, using the refitted pipeline to get OOF probabilities
-    threshold = tune_threshold(refit_pipeline, X, y, groups, name)
+    # threshold = tune_threshold(refit_pipeline, X, y, groups, name)
     return TunedModel(
         name=name,
         pipeline=refit_pipeline,
         best_params=best_params,
         cv_results=cv_df,
-        threshold=threshold,
+        threshold=0.5,  # TEMP: set threshold to 0.5 for now, since we are not tuning it in this assignment (to save time
     )
 
 

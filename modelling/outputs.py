@@ -108,6 +108,106 @@ def save_metrics(metrics_df, des_dir):
     save_csv(metrics_df, des_dir / "metrics_summary.csv")
 
 
+def plot_metrics_summary(metrics_df, des_dir, path=None):
+    metric_order = [
+        "accuracy",
+        "macro_f1",
+        "balanced_accuracy",
+        "precision_approach",
+        "recall_approach",
+        "pr_auc",
+    ]
+    metric_labels = {
+        "accuracy": "Accuracy",
+        "macro_f1": "Macro F1",
+        "balanced_accuracy": "Balanced accuracy",
+        "precision_approach": "Precision (approach)",
+        "recall_approach": "Recall (approach)",
+        "pr_auc": "PR AUC",
+    }
+
+    metrics = [m for m in metric_order if m in metrics_df["metric"].unique()]
+    if not metrics:
+        return
+
+    models = metrics_df["model"].drop_duplicates().tolist()
+    x = np.arange(len(models))
+    width = 0.36
+
+    fig, axes = plt.subplots(2, 3, figsize=(13, 7), sharey=True)
+    axes = axes.ravel()
+    colors = {"train": "tab:blue", "test": "tab:orange"}
+
+    for ax, metric in zip(axes, metrics):
+        metric_df = metrics_df[metrics_df["metric"] == metric]
+        y_max = 1.0
+
+        for split_name, offset in (("train", -width / 2), ("test", width / 2)):
+            split_df = (
+                metric_df[metric_df["split"] == split_name]
+                .set_index("model")
+                .reindex(models)
+            )
+            points = split_df["point"].to_numpy(dtype=float)
+
+            yerr = None
+            if split_name == "test":
+                lows = split_df["ci_low"].to_numpy(dtype=float)
+                highs = split_df["ci_high"].to_numpy(dtype=float)
+                valid_ci = ~np.isnan(lows) & ~np.isnan(highs)
+                lower_err = np.where(valid_ci, np.maximum(points - lows, 0), 0)
+                upper_err = np.where(valid_ci, np.maximum(highs - points, 0), 0)
+                yerr = np.vstack([lower_err, upper_err])
+                if np.any(valid_ci):
+                    y_max = max(y_max, np.nanmax(highs))
+
+            bars = ax.bar(
+                x + offset,
+                points,
+                width,
+                label=split_name.title(),
+                color=colors[split_name],
+                yerr=yerr,
+                capsize=4 if yerr is not None else 0,
+                error_kw={"elinewidth": 1, "capthick": 1},
+            )
+            y_max = max(y_max, np.nanmax(points))
+
+            for i, bar in enumerate(bars):
+                point = points[i]
+                if np.isnan(point):
+                    continue
+                text_y = point
+                ax.annotate(
+                    f"{point:.2f}",
+                    xy=(bar.get_x() + bar.get_width() / 2, text_y),
+                    xytext=(0, 3),
+                    textcoords="offset points",
+                    ha="center",
+                    va="bottom",
+                    fontsize=8,
+                )
+
+        ax.set_title(metric_labels.get(metric, metric))
+        ax.set_xticks(x, models)
+        ax.set_ylim(0, min(1.15, y_max + 0.12))
+        ax.grid(axis="y", alpha=0.25)
+
+    for ax in axes[len(metrics):]:
+        ax.axis("off")
+
+    axes[0].set_ylabel("Score")
+    axes[3].set_ylabel("Score")
+    handles, labels = axes[0].get_legend_handles_labels()
+    fig.legend(handles, labels, loc="upper center", ncol=2, frameon=False)
+    fig.tight_layout(rect=(0, 0, 1, 0.94))
+
+    out = Path(path) if path is not None else Path(des_dir) / "metrics_summary.png"
+    fig.savefig(out, dpi=150)
+    plt.close(fig)
+    print(f"Wrote {relative_path(out)}")
+
+
 def save_confusion_matrices(eval_results, des_dir):
     for r in eval_results:
         if r.confusion is None:
@@ -192,5 +292,6 @@ def write_outputs(tuned, eval_results, influence, metrics_df, data_path=None):
     save_grid_search_tables(tuned, des_dir)
     save_feature_influence(influence, des_dir)
 
+    plot_metrics_summary(metrics_df, des_dir)
     plot_confusion_matrices(eval_results, des_dir)
     plot_feature_influence(influence, des_dir)
