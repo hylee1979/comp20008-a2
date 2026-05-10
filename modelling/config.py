@@ -105,12 +105,12 @@ LR_FIXED = {
 }
 
 RF_GRID = {
-    'model__max_depth': [4, 5, 6, 7],
-    'model__min_samples_leaf': [5, 8, 10],
-    'model__min_samples_split': [20, 30, 40, 50]
+    'model__max_depth': [3, 5, 7],
+    'model__min_samples_leaf': [5, 8, 11],
 }
 RF_FIXED = {
     "n_estimators": 500,
+    "min_samples_split": 20,
     "max_features": "sqrt",
     "class_weight": "balanced",
     "random_state": RANDOM_STATE,
@@ -118,7 +118,7 @@ RF_FIXED = {
 }
 
 # Inner CV scorer + threshold sweep
-INNER_CV_SCORER = "average_precision"
+INNER_CV_SCORER = "balanced_accuracy"
 THRESHOLD_RANGE = np.arange(0.05, 0.951, 0.01)
 
 # Bootstrap for test-set CIs
