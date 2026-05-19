@@ -21,12 +21,12 @@ def stratified_grouped_split(df):
     feature_cols = [c for c in ALL_PREDICTOR_COLS if c in df.columns]
 
     X = df[feature_cols].copy()
-    y = df[TARGET_COL].astype(int) # TODO: check if this should in int
+    y = df[TARGET_COL].astype(int)
     groups = df[SESSION_COL]
 
     # grouped by session_id, so that all rows from a session are in the same split. prevent leakage of session-specific info (e.g. location). stratified by target, to maintain class balance in both splits.
     stratified_folds = StratifiedGroupKFold(n_splits=5, shuffle=True, random_state=RANDOM_STATE)
-    train_idx, test_idx = next(stratified_folds.split(X, y, groups=groups)) # TODO: check how it works
+    train_idx, test_idx = next(stratified_folds.split(X, y, groups=groups))
 
     s = SplitResult(
         X_train=X.iloc[train_idx].reset_index(drop=True),
@@ -35,7 +35,7 @@ def stratified_grouped_split(df):
         y_test=y.iloc[test_idx].reset_index(drop=True),
         groups_train=groups.iloc[train_idx].reset_index(drop=True),
         groups_test=groups.iloc[test_idx].reset_index(drop=True),
-    ) # TODO: why we need groups_train and groups_test? we can get them from X_train and X_test, right?
+    )
 
     overlap = set(s.groups_train.unique()) & set(s.groups_test.unique())
     if overlap:

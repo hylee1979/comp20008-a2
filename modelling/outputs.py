@@ -284,14 +284,14 @@ def plot_feature_influence(influence, des_dir, top_n=15, path=None):
         color="tab:orange", xerr=lr_perm_top["perm_importance_std"],
     )
     ax3.set_title(f"LR  top {top_n} permutation importance")
-    ax3.set_xlabel("Mean drop in average_precision")
+    ax3.set_xlabel(f"Mean drop in {experiment_config.INNER_CV_SCORER}")
 
     ax4.barh(
         rf_top["feature"], rf_top["perm_importance_mean"],
         color="tab:green", xerr=rf_top["perm_importance_std"],
     )
     ax4.set_title(f"RF  top {top_n} permutation importance")
-    ax4.set_xlabel("Mean drop in average_precision")
+    ax4.set_xlabel(f"Mean drop in {experiment_config.INNER_CV_SCORER}")
 
     fig.tight_layout()
     out = Path(path) if path is not None else Path(des_dir) / "feature_influence_compare.png"

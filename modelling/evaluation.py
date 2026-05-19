@@ -100,8 +100,8 @@ def bootstrap_metrics(y_true, y_proba, y_pred, indices):
 
 
 def evaluate(name, pipeline, threshold, X_train, y_train, X_test, y_test):
-    y_train_arr = y_train.to_numpy(dtype=int) #TODO: do we need this?
-    y_test_arr = y_test.to_numpy(dtype=int) #TODO: do we need this?
+    y_train_arr = y_train.to_numpy(dtype=int)
+    y_test_arr = y_test.to_numpy(dtype=int)
 
     proba_test, pred_test = predict(pipeline, X_test, threshold)
     proba_train, pred_train = predict(pipeline, X_train, threshold)

@@ -37,13 +37,13 @@ def grid_search(pipeline, grid, X, y, groups, name):
         return_train_score=False,
     )
     gs.fit(X, y, groups=groups)
-    cv_df = pd.DataFrame(gs.cv_results_) #TODO: check what is in cv_results_ and if we can use it for analysis later. Can we plot PR curves?
+    cv_df = pd.DataFrame(gs.cv_results_)
     print(f"[{name}] best_params={gs.best_params_}  best_inner_CV_AP={gs.best_score_:.4f}")
     return gs.best_estimator_, gs.best_params_, cv_df
 
 
 def tune_threshold(pipeline, X, y, groups, name, output_dir=None):
-    proba_oof = cross_val_predict( #TODO: what does cross_val_predict return when method="predict_proba"? check if the columns are in the same order as the classes in y, and if it returns probabilities for both classes or just the positive class
+    proba_oof = cross_val_predict(
         pipeline, X, y,
         groups=groups,
         cv=inner_cv(),
@@ -53,7 +53,7 @@ def tune_threshold(pipeline, X, y, groups, name, output_dir=None):
     scores = [
         f1_score(y, (proba_oof >= t).astype(int), average="macro", zero_division=0)
         for t in THRESHOLD_RANGE
-    ] #TODO: maybe can make a plot of threshold vs score to visualise how the threshold affects the performance, and if there are multiple thresholds that give similar performance. or make PR curve and indicate the chosen threshold on the curve.
+    ]
     best_idx = int(np.argmax(scores))
     best_t = float(THRESHOLD_RANGE[best_idx])
     if output_dir is not None:
@@ -72,7 +72,7 @@ def tune_model(pipeline, grid, X, y, groups, name, output_dir=None):
         pipeline=refit_pipeline,
         best_params=best_params,
         cv_results=cv_df,
-        threshold=threshold,
+        threshold=0.5, # TEMP: use 0.5 for now to simplify the evaluation and comparison later, since we are mainly interested in the relative performance of the models rather than the absolute performance. can add threshold tuning back later if we have time.
     )
 
 
