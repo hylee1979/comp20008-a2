@@ -259,13 +259,13 @@ def plot_confusion_matrices(eval_results, des_dir, path=None):
     print(f"Wrote {relative_path(out)}")
 
 
-def plot_feature_influence(influence, des_dir, top_n=15, path=None):
+def plot_feature_influence(influence, des_dir, top_n=6, path=None):
     lr_top = influence["lr_coefficients_aggregated"].head(top_n).iloc[::-1]
     rf_imp_top = influence["rf_impurity"].head(top_n).iloc[::-1]
     lr_perm_top = influence["lr_permutation"].head(top_n).iloc[::-1]
     rf_top = influence["rf_permutation"].head(top_n).iloc[::-1]
 
-    fig, axes = plt.subplots(2, 2, figsize=(14, 10))
+    fig, axes = plt.subplots(2, 2, figsize=(10, 6))
     ax1, ax2, ax3, ax4 = axes.ravel()
 
     ax1.barh(lr_top["feature"], lr_top["abs_coefficient_sum"], color="tab:blue")
